@@ -421,13 +421,23 @@ function calculateRotationDirection(layer, deltaX, deltaY) {
 
 let isAnimating = false;
 
-function executeRotation(rotationCommand) {
+function executeRotation(rotationCommand, isUndoAction = false) {
     if (isAnimating) return;
 
     console.log(`執行旋轉: ${rotationCommand.layer.name} 軸=${rotationCommand.axis} 方向=${rotationCommand.direction > 0 ? '順時針' : '逆時針'}`);
 
     // 開啟動畫鎖定
     isAnimating = true;
+
+    // 新增：首次旋轉時自動啟動計時器（僅在 playing 狀態）
+    if (!isUndoAction && cubeState.gameState === 'playing' && cubeState.timerStartTime === null) {
+        cubeState.startTimer();
+    }
+
+    // 新增：增加步數計數（還原操作不計入步數）
+    if (!isUndoAction && cubeState.gameState === 'playing') {
+        cubeState.incrementMoveCount();
+    }
 
     // 創建臨時旋轉群組
     const tempGroup = new THREE.Group();
@@ -475,6 +485,9 @@ function executeRotation(rotationCommand) {
 
         // 清除選擇
         clearSelection();
+
+        // 新增：更新控制面板按鈕狀態
+        cubeState.updateControlPanelState();
 
         console.log('✓ 旋轉完成');
     });
@@ -565,13 +578,24 @@ function updateAnimation() {
 }
 
 // ========== 模組 9: StateManagement - 狀態管理系統 ==========
-// Formula: StateSystem = CubeStateClass × StateMatrix(27 cubies) × OperationHistory(queue) × UpdateMethod(applyRotation) × RestoreMethod(undoRotation)
+// Formula: StateSystem = CubeStateClass × StateMatrix(27 cubies) × OperationHistory(queue) × UpdateMethod(applyRotation) × RestoreMethod(undoRotation) × TimerManagement × MoveCounter × GameState
 
 class CubeState {
     constructor() {
         this.cubies = [];
         this.history = [];
         this.maxHistoryLength = 100;
+
+        // 新增：計時器狀態
+        this.timerStartTime = null;
+        this.timerIntervalId = null;
+        this.elapsedTime = 0; // 毫秒
+
+        // 新增：步數計數器
+        this.moveCount = 0;
+
+        // 新增：遊戲狀態
+        this.gameState = 'idle'; // 'idle' | 'scrambling' | 'playing' | 'solved'
     }
 
     initialize(cubeGroup) {
@@ -676,6 +700,111 @@ class CubeState {
         this.cubies = state.cubies;
         this.history = state.history;
     }
+
+    // ========== 新增：計時器管理方法 ==========
+    startTimer() {
+        if (this.timerIntervalId !== null) return; // 避免重複啟動
+
+        this.timerStartTime = Date.now() - this.elapsedTime;
+        this.timerIntervalId = setInterval(() => {
+            this.elapsedTime = Date.now() - this.timerStartTime;
+            this.updateTimerDisplay();
+        }, 100); // 每 100ms 更新一次（更流暢）
+
+        console.log('✓ 計時器已啟動');
+    }
+
+    stopTimer() {
+        if (this.timerIntervalId === null) return;
+
+        clearInterval(this.timerIntervalId);
+        this.timerIntervalId = null;
+
+        console.log('✓ 計時器已停止');
+    }
+
+    resetTimer() {
+        this.stopTimer();
+        this.elapsedTime = 0;
+        this.timerStartTime = null;
+        this.updateTimerDisplay();
+
+        console.log('✓ 計時器已重置');
+    }
+
+    updateTimerDisplay() {
+        const totalSeconds = Math.floor(this.elapsedTime / 1000);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+
+        const formattedTime = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+
+        const displayElement = document.querySelector('#timer-display .display-value');
+        if (displayElement) {
+            displayElement.textContent = formattedTime;
+        }
+    }
+
+    // ========== 新增：步數計數器方法 ==========
+    incrementMoveCount() {
+        this.moveCount++;
+        this.updateMoveCounterDisplay();
+    }
+
+    decrementMoveCount() {
+        if (this.moveCount > 0) {
+            this.moveCount--;
+            this.updateMoveCounterDisplay();
+        }
+    }
+
+    resetMoveCount() {
+        this.moveCount = 0;
+        this.updateMoveCounterDisplay();
+
+        console.log('✓ 步數計數器已重置');
+    }
+
+    updateMoveCounterDisplay() {
+        const displayElement = document.querySelector('#move-counter .display-value');
+        if (displayElement) {
+            displayElement.textContent = this.moveCount;
+        }
+    }
+
+    // ========== 新增：遊戲狀態管理方法 ==========
+    updateGameState(newState) {
+        const validStates = ['idle', 'scrambling', 'playing', 'solved'];
+        if (!validStates.includes(newState)) {
+            console.error(`無效的遊戲狀態: ${newState}`);
+            return;
+        }
+
+        this.gameState = newState;
+        console.log(`✓ 遊戲狀態更新為: ${newState}`);
+
+        // 根據狀態更新 UI
+        this.updateControlPanelState();
+    }
+
+    updateControlPanelState() {
+        const btnReset = document.getElementById('btn-reset');
+        const btnScramble = document.getElementById('btn-scramble');
+        const btnUndo = document.getElementById('btn-undo');
+
+        if (!btnReset || !btnScramble || !btnUndo) return;
+
+        // 根據遊戲狀態禁用/啟用按鈕
+        if (this.gameState === 'scrambling' || isAnimating) {
+            btnReset.disabled = true;
+            btnScramble.disabled = true;
+            btnUndo.disabled = true;
+        } else {
+            btnReset.disabled = false;
+            btnScramble.disabled = false;
+            btnUndo.disabled = this.history.length === 0;
+        }
+    }
 }
 
 // 全域狀態實例
@@ -701,6 +830,250 @@ function animate() {
     renderer.render(scene, camera);
 }
 
+// ========== 模組 10: ControlPanelFunctions - 控制面板功能 ==========
+// Formula: ControlPanel = ResetFunction + ScrambleFunction + UndoFunction
+
+// 重置功能
+function handleReset() {
+    if (isAnimating) return;
+
+    if (confirm('確定要重置魔術方塊嗎？這將清除所有進度。')) {
+        console.log('執行重置功能...');
+
+        // 停止計時器
+        cubeState.stopTimer();
+
+        // 重置所有小方塊到初始位置和旋轉
+        cubeGroup.children.forEach((child, index) => {
+            if (child.type === 'Mesh') {
+                // 計算初始位置
+                const cubeIndex = index;
+                const x = Math.floor(cubeIndex / 9) - 1;
+                const y = Math.floor((cubeIndex % 9) / 3) - 1;
+                const z = (cubeIndex % 3) - 1;
+
+                child.position.set(x, y, z);
+                child.quaternion.set(0, 0, 0, 1); // 重置旋轉
+            }
+        });
+
+        // 重置狀態
+        cubeState.resetTimer();
+        cubeState.resetMoveCount();
+        cubeState.history = [];
+        cubeState.updateGameState('idle');
+        cubeState.syncState(cubeGroup);
+
+        console.log('✓ 魔術方塊已重置');
+    }
+}
+
+// 打亂功能
+function handleScramble() {
+    if (isAnimating) return;
+
+    console.log('執行打亂功能...');
+
+    // 更新遊戲狀態
+    cubeState.updateGameState('scrambling');
+
+    // 生成隨機打亂序列（20-30 次）
+    const moveCount = 20 + Math.floor(Math.random() * 11); // 20-30
+    const moves = generateRandomMoves(moveCount);
+
+    console.log(`生成打亂序列: ${moveCount} 步`);
+
+    // 執行打亂動畫序列
+    executeScrambleSequence(moves, 0, () => {
+        // 打亂完成後重置計時器和步數
+        cubeState.resetTimer();
+        cubeState.resetMoveCount();
+        cubeState.history = []; // 清除打亂操作歷史
+        cubeState.updateGameState('playing');
+
+        console.log('✓ 魔術方塊已打亂，開始計時！');
+    });
+}
+
+// 生成隨機旋轉命令
+function generateRandomMoves(count) {
+    const faces = ['R', 'L', 'U', 'D', 'F', 'B'];
+    const axisMap = { 'R': 'x', 'L': 'x', 'U': 'y', 'D': 'y', 'F': 'z', 'B': 'z' };
+    const directionMap = { 'R': 1, 'L': -1, 'U': 1, 'D': -1, 'F': 1, 'B': -1 };
+
+    const moves = [];
+    let lastFace = null;
+
+    for (let i = 0; i < count; i++) {
+        // 避免連續兩次旋轉同一面
+        let face;
+        do {
+            face = faces[Math.floor(Math.random() * faces.length)];
+        } while (face === lastFace);
+
+        lastFace = face;
+
+        const axis = axisMap[face];
+        const direction = directionMap[face];
+
+        moves.push({
+            layer: {
+                name: face,
+                axis: axis,
+                cubies: getCubiesInLayer(axis, direction)
+            },
+            axis: axis,
+            direction: direction,
+            angle: direction * Math.PI / 2
+        });
+    }
+
+    return moves;
+}
+
+// 執行打亂動畫序列（遞迴）
+function executeScrambleSequence(moves, index, onComplete) {
+    if (index >= moves.length) {
+        // 所有動作完成
+        onComplete();
+        return;
+    }
+
+    const move = moves[index];
+
+    // 執行當前動作（使用較短的動畫時間以加快打亂速度）
+    const originalDuration = ANIMATION_DURATION;
+
+    executeRotationImmediate(move, originalDuration, () => {
+        // 執行下一個動作
+        executeScrambleSequence(moves, index + 1, onComplete);
+    });
+}
+
+// 立即執行旋轉（不計入步數，用於打亂）
+function executeRotationImmediate(rotationCommand, duration, onComplete) {
+    if (isAnimating) {
+        // 等待當前動畫完成
+        setTimeout(() => executeRotationImmediate(rotationCommand, duration, onComplete), 50);
+        return;
+    }
+
+    isAnimating = true;
+
+    // 創建臨時旋轉群組
+    const tempGroup = new THREE.Group();
+    scene.add(tempGroup);
+
+    const cubies = rotationCommand.layer.cubies;
+
+    cubies.forEach(cubie => {
+        const worldPos = new THREE.Vector3();
+        const worldQuat = new THREE.Quaternion();
+        cubie.getWorldPosition(worldPos);
+        cubie.getWorldQuaternion(worldQuat);
+
+        cubie.parent.remove(cubie);
+        cubie.position.copy(worldPos);
+        cubie.quaternion.copy(worldQuat);
+        tempGroup.add(cubie);
+    });
+
+    // 執行快速旋轉動畫（200ms 加速）
+    animateRotationFast(tempGroup, rotationCommand, 200, () => {
+        applyFinalTransform(tempGroup, cubies, cubeGroup);
+        scene.remove(tempGroup);
+        isAnimating = false;
+        onComplete();
+    });
+}
+
+// 快速旋轉動畫（用於打亂）
+function animateRotationFast(tempGroup, rotationCommand, duration, onComplete) {
+    const easeInOutCubic = (t) => {
+        return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    };
+
+    const startTime = performance.now();
+    const startAngle = 0;
+    const endAngle = rotationCommand.angle;
+    const axis = rotationCommand.axis;
+
+    currentAnimation = {
+        startTime: startTime,
+        duration: duration,
+        update: function(currentTime) {
+            const elapsed = currentTime - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            const easedProgress = easeInOutCubic(progress);
+
+            const currentAngle = startAngle + (endAngle - startAngle) * easedProgress;
+
+            if (axis === 'x') {
+                tempGroup.rotation.x = currentAngle;
+            } else if (axis === 'y') {
+                tempGroup.rotation.y = currentAngle;
+            } else if (axis === 'z') {
+                tempGroup.rotation.z = currentAngle;
+            }
+
+            if (progress >= 1) {
+                currentAnimation = null;
+                onComplete();
+                return false;
+            }
+
+            return true;
+        }
+    };
+}
+
+// 還原功能
+function handleUndo() {
+    if (isAnimating || cubeState.history.length === 0) return;
+
+    console.log('執行還原功能...');
+
+    const undoCommand = cubeState.undoLastRotation();
+
+    if (undoCommand) {
+        // 減少步數（如果在 playing 狀態）
+        if (cubeState.gameState === 'playing') {
+            cubeState.decrementMoveCount();
+        }
+
+        // 執行反向旋轉（標記為還原操作）
+        executeRotation(undoCommand, true);
+
+        console.log('✓ 已還原上一步操作');
+    }
+}
+
+// 初始化控制面板事件監聽
+function initControlPanel() {
+    const btnReset = document.getElementById('btn-reset');
+    const btnScramble = document.getElementById('btn-scramble');
+    const btnUndo = document.getElementById('btn-undo');
+
+    if (btnReset) {
+        btnReset.addEventListener('click', handleReset);
+    }
+
+    if (btnScramble) {
+        btnScramble.addEventListener('click', handleScramble);
+    }
+
+    if (btnUndo) {
+        btnUndo.addEventListener('click', handleUndo);
+    }
+
+    // 初始化顯示
+    cubeState.updateTimerDisplay();
+    cubeState.updateMoveCounterDisplay();
+    cubeState.updateControlPanelState();
+
+    console.log('✓ 控制面板已初始化');
+}
+
 // ========== 響應式設計 ==========
 window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -718,9 +1091,10 @@ function init() {
     initControls();
     initRaycaster();
     cubeState.initialize(cubeGroup);
+    initControlPanel(); // 新增：初始化控制面板
     animate();
     console.log('========== 應用運行中 (60 FPS) ==========');
-    console.log('提示: 點擊並拖拽面層進行旋轉操作');
+    console.log('提示: 點擊並拖拽面層進行旋轉操作，或使用控制面板功能');
 }
 
 // 等待 DOM 載入完成後初始化

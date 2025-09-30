@@ -9,6 +9,25 @@
 <body>
     <div id="canvas-container"></div>
 
+    <!-- Control Panel -->
+    <div id="control-panel">
+        <div class="panel-section buttons">
+            <button id="btn-reset" class="control-btn">重置</button>
+            <button id="btn-scramble" class="control-btn">打亂</button>
+            <button id="btn-undo" class="control-btn">還原</button>
+        </div>
+        <div class="panel-section display">
+            <div id="timer-display" class="display-item">
+                <span class="display-label">時間</span>
+                <span class="display-value">00:00</span>
+            </div>
+            <div id="move-counter" class="display-item">
+                <span class="display-label">步數</span>
+                <span class="display-value">0</span>
+            </div>
+        </div>
+    </div>
+
     <!-- Three.js CDN -->
     <script src="https://cdn.jsdelivr.net/npm/three@0.150.0/build/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.150.0/examples/js/controls/OrbitControls.js"></script>
