@@ -119,11 +119,580 @@ function initControls() {
     console.log('✓ OrbitControls 初始化完成');
 }
 
+// ========== 模組 5: ClickDetection - 點擊檢測系統 ==========
+// Formula: ClickSystem = Raycaster(Camera, MousePosition) × EventListener(click|mousedown) × LayerIdentifier(Cubie -> FaceLayer) × HighlightRenderer(SelectedLayer)
+
+let raycaster, mouse;
+let selectedLayer = null;
+let hoveredCubies = [];
+
+function initRaycaster() {
+    raycaster = new THREE.Raycaster();
+    mouse = new THREE.Vector2();
+
+    // 綁定滑鼠點擊事件
+    renderer.domElement.addEventListener('mousedown', onMouseDown, false);
+    renderer.domElement.addEventListener('mousemove', onMouseMove, false);
+
+    console.log('✓ Raycaster 點擊檢測系統初始化完成');
+}
+
+function onMouseMove(event) {
+    // 避免在動畫期間響應
+    if (isAnimating) return;
+
+    // 轉換為標準化設備座標 (NDC)
+    mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+    // 設置射線
+    raycaster.setFromCamera(mouse, camera);
+
+    // 檢測交集
+    const intersects = raycaster.intersectObjects(cubeGroup.children, true);
+
+    // 清除之前的懸停效果
+    clearHoverEffect();
+
+    if (intersects.length > 0) {
+        const cubie = intersects[0].object;
+        if (cubie.type === 'Mesh') {
+            // 識別面層
+            const layer = identifyFaceLayer(cubie);
+            if (layer) {
+                // 應用懸停效果
+                applyHoverEffect(layer);
+            }
+        }
+    }
+}
+
+function onMouseDown(event) {
+    // 避免在動畫期間響應
+    if (isAnimating) return;
+
+    // 轉換為標準化設備座標 (NDC)
+    mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+    // 設置射線
+    raycaster.setFromCamera(mouse, camera);
+
+    // 檢測交集
+    const intersects = raycaster.intersectObjects(cubeGroup.children, true);
+
+    if (intersects.length > 0) {
+        const cubie = intersects[0].object;
+        if (cubie.type === 'Mesh') {
+            // 識別面層
+            const layer = identifyFaceLayer(cubie);
+            if (layer) {
+                selectLayer(layer);
+                // 開始拖拽檢測
+                startDragDetection(event, layer);
+            }
+        }
+    }
+}
+
+function identifyFaceLayer(cubie) {
+    // Formula: LayerIdentifier = Cubie.position -> dominant_axis -> face_direction
+    const pos = cubie.position;
+    const threshold = 0.5; // 判斷是否在外層的閾值
+
+    // 判斷主導軸和方向
+    if (Math.abs(pos.x - 1) < threshold) {
+        return { axis: 'x', direction: 1, name: 'R', cubies: getCubiesInLayer('x', 1) };
+    } else if (Math.abs(pos.x + 1) < threshold) {
+        return { axis: 'x', direction: -1, name: 'L', cubies: getCubiesInLayer('x', -1) };
+    } else if (Math.abs(pos.y - 1) < threshold) {
+        return { axis: 'y', direction: 1, name: 'U', cubies: getCubiesInLayer('y', 1) };
+    } else if (Math.abs(pos.y + 1) < threshold) {
+        return { axis: 'y', direction: -1, name: 'D', cubies: getCubiesInLayer('y', -1) };
+    } else if (Math.abs(pos.z - 1) < threshold) {
+        return { axis: 'z', direction: 1, name: 'F', cubies: getCubiesInLayer('z', 1) };
+    } else if (Math.abs(pos.z + 1) < threshold) {
+        return { axis: 'z', direction: -1, name: 'B', cubies: getCubiesInLayer('z', -1) };
+    }
+
+    return null;
+}
+
+function getCubiesInLayer(axis, value) {
+    // Formula: LayerFilter = cubeGroup.children -> filter(cubie.position[axis] === value)
+    const threshold = 0.5;
+    const cubies = [];
+
+    cubeGroup.children.forEach(child => {
+        if (child.type === 'Mesh') {
+            const pos = child.position;
+            if (axis === 'x' && Math.abs(pos.x - value) < threshold) {
+                cubies.push(child);
+            } else if (axis === 'y' && Math.abs(pos.y - value) < threshold) {
+                cubies.push(child);
+            } else if (axis === 'z' && Math.abs(pos.z - value) < threshold) {
+                cubies.push(child);
+            }
+        }
+    });
+
+    return cubies;
+}
+
+function selectLayer(layer) {
+    // 清除之前的選擇
+    clearSelection();
+
+    selectedLayer = layer;
+
+    // 應用高亮效果
+    applyHighlight(layer.cubies);
+
+    console.log(`✓ 選中面層: ${layer.name} (${layer.cubies.length} 個小方塊)`);
+}
+
+function applyHighlight(cubies) {
+    cubies.forEach(cubie => {
+        cubie.userData.originalEmissive = cubie.userData.originalEmissive || [];
+
+        cubie.material.forEach((mat, index) => {
+            if (!cubie.userData.originalEmissive[index]) {
+                cubie.userData.originalEmissive[index] = mat.emissive ? mat.emissive.getHex() : 0x000000;
+            }
+            if (mat.color.getHex() !== 0x000000) {
+                mat.emissive = new THREE.Color(0x444444);
+                mat.emissiveIntensity = 0.5;
+            }
+        });
+    });
+}
+
+function applyHoverEffect(layer) {
+    hoveredCubies = layer.cubies;
+    hoveredCubies.forEach(cubie => {
+        cubie.material.forEach((mat) => {
+            if (mat.color.getHex() !== 0x000000) {
+                mat.emissive = new THREE.Color(0x222222);
+                mat.emissiveIntensity = 0.3;
+            }
+        });
+    });
+}
+
+function clearHoverEffect() {
+    hoveredCubies.forEach(cubie => {
+        if (!selectedLayer || !selectedLayer.cubies.includes(cubie)) {
+            cubie.material.forEach((mat) => {
+                mat.emissive = new THREE.Color(0x000000);
+                mat.emissiveIntensity = 0;
+            });
+        }
+    });
+    hoveredCubies = [];
+}
+
+function clearSelection() {
+    if (selectedLayer) {
+        selectedLayer.cubies.forEach(cubie => {
+            cubie.material.forEach((mat, index) => {
+                const originalEmissive = cubie.userData.originalEmissive?.[index] || 0x000000;
+                mat.emissive = new THREE.Color(originalEmissive);
+                mat.emissiveIntensity = 0;
+            });
+        });
+        selectedLayer = null;
+    }
+}
+
+// ========== 模組 6: DragDetection - 拖拽檢測與方向判斷 ==========
+// Formula: DragSystem = EventListener(mousedown + mousemove + mouseup) × DragVector(Δx, Δy) × DirectionAlgorithm(Vector -> Axis + Clockwise|CCW) × ThresholdValidation(minDistance)
+
+let isDragging = false;
+let dragStartX = 0;
+let dragStartY = 0;
+let dragLayer = null;
+const DRAG_THRESHOLD = 30; // 最小拖拽距離（像素）
+
+function startDragDetection(event, layer) {
+    isDragging = true;
+    dragStartX = event.clientX;
+    dragStartY = event.clientY;
+    dragLayer = layer;
+
+    // 添加拖拽事件監聽
+    document.addEventListener('mousemove', onDragMove, false);
+    document.addEventListener('mouseup', onDragEnd, false);
+
+    // 禁用 OrbitControls 避免衝突
+    controls.enabled = false;
+}
+
+function onDragMove(event) {
+    if (!isDragging || isAnimating) return;
+
+    const deltaX = event.clientX - dragStartX;
+    const deltaY = event.clientY - dragStartY;
+    const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+    // 檢查是否達到旋轉閾值
+    if (distance < DRAG_THRESHOLD) return;
+
+    // 計算旋轉方向
+    const rotationCommand = calculateRotationDirection(dragLayer, deltaX, deltaY);
+
+    if (rotationCommand) {
+        // 執行旋轉
+        executeRotation(rotationCommand);
+
+        // 重置拖拽狀態
+        resetDragState();
+    }
+}
+
+function onDragEnd() {
+    resetDragState();
+}
+
+function resetDragState() {
+    isDragging = false;
+    dragLayer = null;
+
+    // 移除事件監聽
+    document.removeEventListener('mousemove', onDragMove, false);
+    document.removeEventListener('mouseup', onDragEnd, false);
+
+    // 重新啟用 OrbitControls
+    if (!isAnimating) {
+        controls.enabled = true;
+    }
+}
+
+function calculateRotationDirection(layer, deltaX, deltaY) {
+    // Formula: DirectionAlgorithm = layer.axis + drag_vector + camera_orientation -> rotation_axis + clockwise_direction
+    const axis = layer.axis;
+    const name = layer.name;
+
+    // 判斷主導拖拽方向
+    const isHorizontal = Math.abs(deltaX) > Math.abs(deltaY);
+
+    let rotationAxis = axis;
+    let direction = 1; // 1 = 順時針 (+90°), -1 = 逆時針 (-90°)
+
+    // 根據面層方向和拖拽向量計算旋轉方向
+    if (axis === 'x') {
+        // R (右) 或 L (左) 面
+        if (isHorizontal) {
+            rotationAxis = 'x';
+            direction = (name === 'R') ? (deltaX > 0 ? -1 : 1) : (deltaX > 0 ? 1 : -1);
+        } else {
+            rotationAxis = 'x';
+            direction = (name === 'R') ? (deltaY > 0 ? 1 : -1) : (deltaY > 0 ? -1 : 1);
+        }
+    } else if (axis === 'y') {
+        // U (上) 或 D (下) 面
+        if (isHorizontal) {
+            rotationAxis = 'y';
+            direction = (name === 'U') ? (deltaX > 0 ? 1 : -1) : (deltaX > 0 ? -1 : 1);
+        } else {
+            rotationAxis = 'y';
+            direction = (name === 'U') ? (deltaY > 0 ? -1 : 1) : (deltaY > 0 ? 1 : -1);
+        }
+    } else if (axis === 'z') {
+        // F (前) 或 B (後) 面
+        if (isHorizontal) {
+            rotationAxis = 'z';
+            direction = (name === 'F') ? (deltaX > 0 ? -1 : 1) : (deltaX > 0 ? 1 : -1);
+        } else {
+            rotationAxis = 'z';
+            direction = (name === 'F') ? (deltaY > 0 ? 1 : -1) : (deltaY > 0 ? -1 : 1);
+        }
+    }
+
+    return {
+        layer: layer,
+        axis: rotationAxis,
+        direction: direction,
+        angle: direction * Math.PI / 2 // ±90°
+    };
+}
+
+// ========== 模組 7: RotationMath - 旋轉數學邏輯 ==========
+// Formula: RotationLogic = FaceLayerFilter(9 cubies) × RotationMatrix(axis, ±90°) × Transform(cubie.position) × Quaternion(cubie.rotation) × StateUpdate(cubeState)
+
+let isAnimating = false;
+
+function executeRotation(rotationCommand) {
+    if (isAnimating) return;
+
+    console.log(`執行旋轉: ${rotationCommand.layer.name} 軸=${rotationCommand.axis} 方向=${rotationCommand.direction > 0 ? '順時針' : '逆時針'}`);
+
+    // 開啟動畫鎖定
+    isAnimating = true;
+
+    // 創建臨時旋轉群組
+    const tempGroup = new THREE.Group();
+    scene.add(tempGroup);
+
+    // 添加面層小方塊到臨時群組
+    const cubies = rotationCommand.layer.cubies;
+    const cubieParents = [];
+
+    cubies.forEach(cubie => {
+        // 保存原始父物件
+        cubieParents.push(cubie.parent);
+
+        // 保存世界座標
+        const worldPos = new THREE.Vector3();
+        const worldQuat = new THREE.Quaternion();
+        cubie.getWorldPosition(worldPos);
+        cubie.getWorldQuaternion(worldQuat);
+
+        // 從原父物件移除
+        cubie.parent.remove(cubie);
+
+        // 設置世界座標
+        cubie.position.copy(worldPos);
+        cubie.quaternion.copy(worldQuat);
+
+        // 添加到臨時群組
+        tempGroup.add(cubie);
+    });
+
+    // 執行旋轉動畫
+    animateRotation(tempGroup, rotationCommand, () => {
+        // 動畫完成回調 - 應用最終變換
+        applyFinalTransform(tempGroup, cubies, cubeGroup);
+
+        // 移除臨時群組
+        scene.remove(tempGroup);
+
+        // 更新狀態
+        updateCubeState(rotationCommand);
+
+        // 釋放動畫鎖定
+        isAnimating = false;
+        controls.enabled = true;
+
+        // 清除選擇
+        clearSelection();
+
+        console.log('✓ 旋轉完成');
+    });
+}
+
+function applyFinalTransform(tempGroup, cubies, targetGroup) {
+    // Formula: Transform = tempGroup.rotation -> cubie.worldPosition + cubie.worldRotation -> targetGroup
+    cubies.forEach(cubie => {
+        // 獲取世界座標和旋轉
+        const worldPos = new THREE.Vector3();
+        const worldQuat = new THREE.Quaternion();
+        cubie.getWorldPosition(worldPos);
+        cubie.getWorldQuaternion(worldQuat);
+
+        // 從臨時群組移除
+        tempGroup.remove(cubie);
+
+        // 設置新位置和旋轉
+        cubie.position.copy(worldPos);
+        cubie.quaternion.copy(worldQuat);
+
+        // 歸正位置到最接近的網格點（避免浮點誤差）
+        cubie.position.x = Math.round(cubie.position.x);
+        cubie.position.y = Math.round(cubie.position.y);
+        cubie.position.z = Math.round(cubie.position.z);
+
+        // 添加回主群組
+        targetGroup.add(cubie);
+    });
+}
+
+// ========== 模組 8: AnimationSystem - 旋轉動畫系統 ==========
+// Formula: Animation = Tween(startValue, endValue, duration) × EasingFunc(easeInOutCubic) × RAF(interpolate) × onComplete(commitState + unlock) × AnimationLock(isAnimating)
+
+const ANIMATION_DURATION = 400; // 毫秒
+let currentAnimation = null;
+
+function animateRotation(tempGroup, rotationCommand, onComplete) {
+    // 緩動函數：easeInOutCubic
+    const easeInOutCubic = (t) => {
+        return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    };
+
+    const startTime = performance.now();
+    const startAngle = 0;
+    const endAngle = rotationCommand.angle;
+    const axis = rotationCommand.axis;
+
+    currentAnimation = {
+        startTime: startTime,
+        duration: ANIMATION_DURATION,
+        update: function(currentTime) {
+            const elapsed = currentTime - startTime;
+            const progress = Math.min(elapsed / ANIMATION_DURATION, 1);
+            const easedProgress = easeInOutCubic(progress);
+
+            // 計算當前角度
+            const currentAngle = startAngle + (endAngle - startAngle) * easedProgress;
+
+            // 應用旋轉
+            if (axis === 'x') {
+                tempGroup.rotation.x = currentAngle;
+            } else if (axis === 'y') {
+                tempGroup.rotation.y = currentAngle;
+            } else if (axis === 'z') {
+                tempGroup.rotation.z = currentAngle;
+            }
+
+            // 檢查動畫是否完成
+            if (progress >= 1) {
+                currentAnimation = null;
+                onComplete();
+                return false; // 停止動畫
+            }
+
+            return true; // 繼續動畫
+        }
+    };
+}
+
+function updateAnimation() {
+    if (currentAnimation) {
+        const continueAnimation = currentAnimation.update(performance.now());
+        if (!continueAnimation) {
+            currentAnimation = null;
+        }
+    }
+}
+
+// ========== 模組 9: StateManagement - 狀態管理系統 ==========
+// Formula: StateSystem = CubeStateClass × StateMatrix(27 cubies) × OperationHistory(queue) × UpdateMethod(applyRotation) × RestoreMethod(undoRotation)
+
+class CubeState {
+    constructor() {
+        this.cubies = [];
+        this.history = [];
+        this.maxHistoryLength = 100;
+    }
+
+    initialize(cubeGroup) {
+        // 初始化狀態矩陣
+        this.cubies = [];
+        cubeGroup.children.forEach((child, index) => {
+            if (child.type === 'Mesh') {
+                // 分配唯一 ID
+                const id = `${child.position.x}_${child.position.y}_${child.position.z}`;
+                child.userData.id = id;
+                child.userData.originalIndex = index;
+
+                this.cubies.push({
+                    id: id,
+                    position: child.position.clone(),
+                    rotation: child.quaternion.clone(),
+                    originalIndex: index
+                });
+            }
+        });
+
+        console.log(`✓ CubeState 初始化完成 (${this.cubies.length} 個小方塊)`);
+    }
+
+    updateState(rotationCommand) {
+        // 記錄操作到歷史
+        this.history.push({
+            layer: rotationCommand.layer.name,
+            axis: rotationCommand.axis,
+            direction: rotationCommand.direction,
+            timestamp: Date.now()
+        });
+
+        // 限制歷史長度
+        if (this.history.length > this.maxHistoryLength) {
+            this.history.shift();
+        }
+
+        // 更新狀態矩陣（在 applyFinalTransform 後同步）
+        this.syncState(cubeGroup);
+
+        console.log(`✓ 狀態已更新 (歷史記錄: ${this.history.length} 步)`);
+    }
+
+    syncState(cubeGroup) {
+        // 同步當前狀態
+        cubeGroup.children.forEach((child) => {
+            if (child.type === 'Mesh' && child.userData.id) {
+                const stateEntry = this.cubies.find(c => c.id === child.userData.id);
+                if (stateEntry) {
+                    stateEntry.position = child.position.clone();
+                    stateEntry.rotation = child.quaternion.clone();
+                }
+            }
+        });
+    }
+
+    getState() {
+        return {
+            cubies: this.cubies.map(c => ({...c})),
+            history: [...this.history]
+        };
+    }
+
+    undoLastRotation() {
+        if (this.history.length === 0) {
+            console.log('沒有可還原的操作');
+            return null;
+        }
+
+        const lastOperation = this.history[this.history.length - 1];
+
+        // 生成反向旋轉命令
+        const undoCommand = {
+            layer: {
+                name: lastOperation.layer,
+                axis: lastOperation.axis,
+                cubies: getCubiesInLayer(lastOperation.axis, lastOperation.direction)
+            },
+            axis: lastOperation.axis,
+            direction: -lastOperation.direction, // 反向
+            angle: -lastOperation.direction * Math.PI / 2
+        };
+
+        // 移除最後一條歷史記錄（因為執行還原時會再次記錄）
+        this.history.pop();
+
+        return undoCommand;
+    }
+
+    serialize() {
+        // 序列化狀態（為未來保存功能預留）
+        return JSON.stringify({
+            cubies: this.cubies,
+            history: this.history
+        });
+    }
+
+    deserialize(data) {
+        // 反序列化狀態
+        const state = JSON.parse(data);
+        this.cubies = state.cubies;
+        this.history = state.history;
+    }
+}
+
+// 全域狀態實例
+let cubeState = new CubeState();
+
+function updateCubeState(rotationCommand) {
+    cubeState.updateState(rotationCommand);
+}
+
 // ========== 模組 4: RenderLoop - 渲染循環 ==========
-// Formula: AnimationLoop = requestAnimationFrame -> controls.update -> renderer.render
+// Formula: AnimationLoop = requestAnimationFrame -> controls.update -> animation.update -> renderer.render
 
 function animate() {
     requestAnimationFrame(animate);
+
+    // 更新動畫
+    updateAnimation();
 
     // 更新控制器（阻尼效果需要）
     controls.update();
@@ -140,15 +709,18 @@ window.addEventListener('resize', () => {
 });
 
 // ========== 應用初始化 ==========
-// Formula: Init = SceneSetup -> CubeModeling -> ControlsIntegration -> RenderLoopStart
+// Formula: Init = SceneSetup -> CubeModeling -> ControlsIntegration -> InteractionSetup -> StateInitialization -> RenderLoopStart
 
 function init() {
     console.log('========== 魔術方塊應用啟動 ==========');
     initScene();
     buildRubiksCube();
     initControls();
+    initRaycaster();
+    cubeState.initialize(cubeGroup);
     animate();
     console.log('========== 應用運行中 (60 FPS) ==========');
+    console.log('提示: 點擊並拖拽面層進行旋轉操作');
 }
 
 // 等待 DOM 載入完成後初始化
