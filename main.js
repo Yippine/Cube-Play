@@ -1,6 +1,9 @@
 // Three.js 魔術方塊應用 - 入口文件
 // Formula: FunctionalSystem = Scene3D + Cube3x3x3 + OrbitControls + AnimationLoop
 
+// ES Module Import
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
 // 檢查 Three.js 是否載入成功
 if (typeof THREE === 'undefined') {
     console.error('Three.js 未成功載入！');
@@ -107,7 +110,7 @@ function buildRubiksCube() {
 // Formula: OrbitControls(target, enableDamping)
 
 function initControls() {
-    controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls = new OrbitControls(camera, renderer.domElement);
     controls.target.set(0, 0, 0);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
