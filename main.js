@@ -1,14 +1,12 @@
 // Three.js 魔術方塊應用 - 入口文件
 // Formula: FunctionalSystem = Scene3D + Cube3x3x3 + OrbitControls + AnimationLoop
 
-// ES Module Import
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-
 // 檢查 Three.js 是否載入成功
 if (typeof THREE === 'undefined') {
     console.error('Three.js 未成功載入！');
     alert('Three.js 載入失敗，請檢查網路連線或 CDN 可用性。');
 }
+
 
 console.log('Three.js 版本:', THREE.REVISION);
 console.log('應用初始化中...');
@@ -22,7 +20,8 @@ let cubeGroup;
 function initScene() {
     // 創建場景
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x1a1a2e);
+    // 設置透明背景，讓 CSS 漸層背景可見
+    scene.background = null;
 
     // 創建相機 - PerspectiveCamera(fov, aspect, near, far)
     const fov = 75;
@@ -34,7 +33,7 @@ function initScene() {
     camera.lookAt(0, 0, 0);
 
     // 創建渲染器
-    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(window.devicePixelRatio);
     document.getElementById('canvas-container').appendChild(renderer.domElement);
@@ -58,14 +57,14 @@ function buildRubiksCube() {
     cubeGroup = new THREE.Group();
 
     // 魔術方塊標準配色
-    // 白=上(+Y), 黃=下(-Y), 紅=前(+Z), 橙=後(-Z), 綠=右(+X), 藍=左(-X)
+    // 黃=上(+Y), 白=下(-Y), 紅=前(+Z), 橙=後(-Z), 綠=右(+X), 藍=左(-X)
     const faceColors = {
-        white: 0xffffff,   // 上面
-        yellow: 0xffff00,  // 下面
-        red: 0xff0000,     // 前面
-        orange: 0xff8800,  // 後面
-        green: 0x00ff00,   // 右面
-        blue: 0x0000ff     // 左面
+        yellow: 0xffff00,  // 上面 - 黃色
+        white: 0xffffff,   // 下面 - 純白色
+        red: 0xff0000,     // 前面 - 紅色
+        orange: 0xff6600,  // 後面 - 鮮豔橙色
+        green: 0x00ff00,   // 右面 - 綠色
+        blue: 0x1e90ff     // 左面 - 淺藍色 (道奇藍)
     };
 
     const cubeSize = 0.95; // 小方塊大小（留 0.05 間隙）
@@ -80,12 +79,12 @@ function buildRubiksCube() {
 
                 // 為每個面創建不同顏色的材質
                 const materials = [
-                    new THREE.MeshStandardMaterial({ color: x === 1 ? faceColors.green : 0x000000 }),  // 右面
-                    new THREE.MeshStandardMaterial({ color: x === -1 ? faceColors.blue : 0x000000 }),   // 左面
-                    new THREE.MeshStandardMaterial({ color: y === 1 ? faceColors.white : 0x000000 }),   // 上面
-                    new THREE.MeshStandardMaterial({ color: y === -1 ? faceColors.yellow : 0x000000 }), // 下面
-                    new THREE.MeshStandardMaterial({ color: z === 1 ? faceColors.red : 0x000000 }),     // 前面
-                    new THREE.MeshStandardMaterial({ color: z === -1 ? faceColors.orange : 0x000000 })  // 後面
+                    new THREE.MeshBasicMaterial({ color: x === 1 ? faceColors.green : 0x000000 }),  // 右面
+                    new THREE.MeshBasicMaterial({ color: x === -1 ? faceColors.blue : 0x000000 }),   // 左面
+                    new THREE.MeshBasicMaterial({ color: y === 1 ? faceColors.yellow : 0x000000 }),  // 上面
+                    new THREE.MeshBasicMaterial({ color: y === -1 ? faceColors.white : 0x000000 }),  // 下面
+                    new THREE.MeshBasicMaterial({ color: z === 1 ? faceColors.red : 0x000000 }),     // 前面
+                    new THREE.MeshBasicMaterial({ color: z === -1 ? faceColors.orange : 0x000000 })  // 後面
                 ];
 
                 const cube = new THREE.Mesh(geometry, materials);
@@ -110,7 +109,7 @@ function buildRubiksCube() {
 // Formula: OrbitControls(target, enableDamping)
 
 function initControls() {
-    controls = new OrbitControls(camera, renderer.domElement);
+    controls = new THREE.OrbitControls(camera, renderer.domElement);
     controls.target.set(0, 0, 0);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
@@ -118,6 +117,19 @@ function initControls() {
     controls.enablePan = false;
     controls.minDistance = 3;
     controls.maxDistance = 15;
+
+    // 完全移除視角限制，允許完全自由旋轉
+    controls.minPolarAngle = 0;
+    controls.maxPolarAngle = Math.PI;
+    controls.minAzimuthAngle = -Infinity;
+    controls.maxAzimuthAngle = Infinity;
+
+    // 修改為右鍵控制視角旋轉
+    controls.mouseButtons = {
+        LEFT: null,  // 左鍵不控制 OrbitControls
+        MIDDLE: THREE.MOUSE.DOLLY,  // 中鍵縮放
+        RIGHT: THREE.MOUSE.ROTATE    // 右鍵旋轉視角
+    };
 
     console.log('✓ OrbitControls 初始化完成');
 }
@@ -133,8 +145,8 @@ function initRaycaster() {
     raycaster = new THREE.Raycaster();
     mouse = new THREE.Vector2();
 
-    // 綁定滑鼠點擊事件
-    renderer.domElement.addEventListener('mousedown', onMouseDown, false);
+    // 綁定滑鼠點擊事件（使用捕獲模式優先處理左鍵）
+    renderer.domElement.addEventListener('mousedown', onMouseDown, true);
     renderer.domElement.addEventListener('mousemove', onMouseMove, false);
 
     console.log('✓ Raycaster 點擊檢測系統初始化完成');
@@ -158,7 +170,13 @@ function onMouseMove(event) {
     clearHoverEffect();
 
     if (intersects.length > 0) {
-        const cubie = intersects[0].object;
+        let cubie = intersects[0].object;
+
+        // 如果懸停在邊框線上，獲取其父物件（Mesh）
+        if (cubie.type === 'LineSegments' && cubie.parent && cubie.parent.type === 'Mesh') {
+            cubie = cubie.parent;
+        }
+
         if (cubie.type === 'Mesh') {
             // 識別面層
             const layer = identifyFaceLayer(cubie);
@@ -171,8 +189,14 @@ function onMouseMove(event) {
 }
 
 function onMouseDown(event) {
+    // 只響應左鍵（button === 0）
+    if (event.button !== 0) return;
     // 避免在動畫期間響應
     if (isAnimating) return;
+
+    // 阻止事件傳播，避免與 OrbitControls 衝突
+    event.preventDefault();
+    event.stopPropagation();
 
     // 轉換為標準化設備座標 (NDC)
     mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
@@ -183,13 +207,15 @@ function onMouseDown(event) {
 
     // 檢測交集
     const intersects = raycaster.intersectObjects(cubeGroup.children, true);
-
     if (intersects.length > 0) {
-        const cubie = intersects[0].object;
+        let cubie = intersects[0].object;
+        // 如果點擊到的是邊框線，獲取其父物件（Mesh）
+        if (cubie.type === 'LineSegments' && cubie.parent && cubie.parent.type === 'Mesh') {
+            cubie = cubie.parent;        }
+
         if (cubie.type === 'Mesh') {
             // 識別面層
-            const layer = identifyFaceLayer(cubie);
-            if (layer) {
+            const layer = identifyFaceLayer(cubie);            if (layer) {
                 selectLayer(layer);
                 // 開始拖拽檢測
                 startDragDetection(event, layer);
@@ -256,15 +282,15 @@ function selectLayer(layer) {
 
 function applyHighlight(cubies) {
     cubies.forEach(cubie => {
-        cubie.userData.originalEmissive = cubie.userData.originalEmissive || [];
+        cubie.userData.originalOpacity = cubie.userData.originalOpacity || [];
 
         cubie.material.forEach((mat, index) => {
-            if (!cubie.userData.originalEmissive[index]) {
-                cubie.userData.originalEmissive[index] = mat.emissive ? mat.emissive.getHex() : 0x000000;
+            if (!cubie.userData.originalOpacity[index]) {
+                cubie.userData.originalOpacity[index] = mat.opacity;
             }
             if (mat.color.getHex() !== 0x000000) {
-                mat.emissive = new THREE.Color(0x444444);
-                mat.emissiveIntensity = 0.5;
+                mat.transparent = true;
+                mat.opacity = 0.7;
             }
         });
     });
@@ -272,35 +298,21 @@ function applyHighlight(cubies) {
 
 function applyHoverEffect(layer) {
     hoveredCubies = layer.cubies;
-    hoveredCubies.forEach(cubie => {
-        cubie.material.forEach((mat) => {
-            if (mat.color.getHex() !== 0x000000) {
-                mat.emissive = new THREE.Color(0x222222);
-                mat.emissiveIntensity = 0.3;
-            }
-        });
-    });
+    // MeshBasicMaterial 不支持 emissive，暫時禁用懸停視覺效果
 }
 
 function clearHoverEffect() {
-    hoveredCubies.forEach(cubie => {
-        if (!selectedLayer || !selectedLayer.cubies.includes(cubie)) {
-            cubie.material.forEach((mat) => {
-                mat.emissive = new THREE.Color(0x000000);
-                mat.emissiveIntensity = 0;
-            });
-        }
-    });
     hoveredCubies = [];
+    // MeshBasicMaterial 不支持 emissive，懸停視覺效果已禁用
 }
 
 function clearSelection() {
     if (selectedLayer) {
         selectedLayer.cubies.forEach(cubie => {
             cubie.material.forEach((mat, index) => {
-                const originalEmissive = cubie.userData.originalEmissive?.[index] || 0x000000;
-                mat.emissive = new THREE.Color(originalEmissive);
-                mat.emissiveIntensity = 0;
+                const originalOpacity = cubie.userData.originalOpacity?.[index] || 1;
+                mat.opacity = originalOpacity;
+                mat.transparent = originalOpacity < 1;
             });
         });
         selectedLayer = null;
@@ -479,8 +491,13 @@ function executeRotation(rotationCommand, isUndoAction = false) {
         // 移除臨時群組
         scene.remove(tempGroup);
 
-        // 更新狀態
-        updateCubeState(rotationCommand);
+        // 更新狀態（只在非還原操作時記錄 history）
+        if (!isUndoAction) {
+            updateCubeState(rotationCommand);
+        } else {
+            // 還原操作只同步狀態，不記錄 history
+            cubeState.syncState(cubeGroup);
+        }
 
         // 釋放動畫鎖定
         isAnimating = false;
@@ -572,9 +589,11 @@ function animateRotation(tempGroup, rotationCommand, onComplete) {
 }
 
 function updateAnimation() {
-    if (currentAnimation) {
-        const continueAnimation = currentAnimation.update(performance.now());
-        if (!continueAnimation) {
+    const anim = currentAnimation; // 保存當前動畫引用
+    if (anim) {
+        const continueAnimation = anim.update(performance.now());
+        // 只有當動畫結束且沒有被新動畫替換時才清除
+        if (!continueAnimation && currentAnimation === anim) {
             currentAnimation = null;
         }
     }
@@ -846,15 +865,10 @@ function handleReset() {
         // 停止計時器
         cubeState.stopTimer();
 
-        // 重置所有小方塊到初始位置和旋轉
-        cubeGroup.children.forEach((child, index) => {
-            if (child.type === 'Mesh') {
-                // 計算初始位置
-                const cubeIndex = index;
-                const x = Math.floor(cubeIndex / 9) - 1;
-                const y = Math.floor((cubeIndex % 9) / 3) - 1;
-                const z = (cubeIndex % 3) - 1;
-
+        // 使用 userData.id 來恢復初始位置（格式：x_y_z）
+        cubeGroup.children.forEach((child) => {
+            if (child.type === 'Mesh' && child.userData.id) {
+                const [x, y, z] = child.userData.id.split('_').map(Number);
                 child.position.set(x, y, z);
                 child.quaternion.set(0, 0, 0, 1); // 重置旋轉
             }
@@ -923,7 +937,7 @@ function generateRandomMoves(count) {
             layer: {
                 name: face,
                 axis: axis,
-                cubies: getCubiesInLayer(axis, direction)
+                direction: direction  // 不預先獲取 cubies，在執行時動態獲取
             },
             axis: axis,
             direction: direction,
@@ -967,7 +981,8 @@ function executeRotationImmediate(rotationCommand, duration, onComplete) {
     const tempGroup = new THREE.Group();
     scene.add(tempGroup);
 
-    const cubies = rotationCommand.layer.cubies;
+    // 動態獲取當前位置的 cubies（而非使用預先保存的引用）
+    const cubies = getCubiesInLayer(rotationCommand.layer.axis, rotationCommand.layer.direction);
 
     cubies.forEach(cubie => {
         const worldPos = new THREE.Vector3();
@@ -985,7 +1000,6 @@ function executeRotationImmediate(rotationCommand, duration, onComplete) {
     animateRotationFast(tempGroup, rotationCommand, 200, () => {
         applyFinalTransform(tempGroup, cubies, cubeGroup);
         scene.remove(tempGroup);
-        isAnimating = false;
         onComplete();
     });
 }
@@ -1021,6 +1035,7 @@ function animateRotationFast(tempGroup, rotationCommand, duration, onComplete) {
 
             if (progress >= 1) {
                 currentAnimation = null;
+                isAnimating = false;
                 onComplete();
                 return false;
             }
